@@ -1,0 +1,9 @@
+# Integration with Issue Tracker
+#
+# (note that '\' need to be escaped).
+
+# windows 에서는 순서 중요. 위쪽 tracker 가 감지되면 아래 내용 무시(consumed)됨.
+
+[issuetracker "dev-skia project issue"]
+  regex = "#(\\d+)"
+  url = "https://github.com/dev-skia/swift-lib/issues/$1"
