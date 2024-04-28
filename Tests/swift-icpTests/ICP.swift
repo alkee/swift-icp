@@ -7,7 +7,7 @@ final class ICP_Test: XCTestCase {
     var modelBox: PointCloud3f!
     var sceneBox: PointCloud3f!
     let sampleTransform = simd_double4x4(
-        t: .init(3, 3, 3),
+        t: .init(-0.2, -0.2, -0.2),
         r: matrix_identity_double3x3,
         s: .one)
 

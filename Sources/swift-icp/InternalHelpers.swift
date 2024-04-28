@@ -196,15 +196,3 @@ extension simd_float3: KDTreePoint {
         return Double(simd_distance_squared(self, otherPoint))
     }
 }
-
-
-class HashNode_i<T: Numeric> {
-    var key: UInt32 = 0
-    var data: T = 0
-    var next: HashNode_i? = nil
-}
-
-class HashTable_i {
-    var size: Int = 0
-    
-}

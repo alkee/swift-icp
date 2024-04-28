@@ -92,8 +92,8 @@ public class ICP {
             var i = 0
             
             var numElSrc = modelPct.points.count
-            let distances: [Float] = .init(repeating: 0, count: numElSrc)
-            let indices: [Int] = .init(repeating: 0, count: numElSrc)
+            var distances: [Float] = .init(repeating: 0, count: numElSrc)
+            var indices: [Int] = .init(repeating: 0, count: numElSrc)
             
             // use robust weighting for outlier treatment
             var indicesModel: [Int] = .init(repeating: 0, count: numElSrc)
@@ -106,9 +106,11 @@ public class ICP {
             while !(fval_perc < (1 + TolP) && fval_perc > (1 - TolP))
                 && i < MaxIterationsPyr {
                 let results = ICP.query(from: tree, points: src_moved.points)
-                newI = Array(0 ..< numElSrc)
-                for r in results {
-                    newJ.append(r.index)
+                for (idx, r) in results.enumerated() {
+                    newI[idx] = idx
+                    newJ[idx] = r.index
+                    indices[idx] = r.index
+                    distances[idx] = sqrt(Float(r.squaredDistance))
                 }
                 
                 if useRobustReject {
@@ -165,7 +167,7 @@ public class ICP {
                     selInd += 1
                 }
                 
-                if selInd >= 6 {
+                if selInd >= 6 { // = dict.count.. 중복 선택되지않은 6개 이상의 점?? 왜 6 ?
                     // TODO: PointCloud3f 대신 Matrix 를 직접 사용?
                     var srcMatch = PointCloud3f() // Matrix(selInd, 6)
                     var dstMatch = PointCloud3f()
@@ -209,7 +211,7 @@ public class ICP {
             }
             
             pose = poseX * pose
-            residual = tempResidual
+            residual = tempResidual > 0 ? tempResidual : fval_min
             tempResidual = fval_min
         }
         
@@ -274,20 +276,22 @@ public class ICP {
             let normal = dst.normals[i].toDobule()
             let sub = dstPt - srcPt
             let axis = simd_cross(srcPt, normal)
-            a[row: i] = axis.toArray() + normal.toArray()
+            // LASwift 의 operator + 에 의해 [double] 이 concat 되지 않고 elementwise + 되어버림 주의
+            var row = axis.toArray()
+            row.append(contentsOf: normal.toArray())
+            a[row: i] = row
             b[i, 0] = simd_dot(sub, normal)
         }
         // cv::solve(A, b, rpy_t, DECOMP_SVD);
-        //   [rows, 6] * x([6, 1]) = [rows, 1]
-        let (x, _) = lstsqr(a, b)
-        let rpy = x[row: 0]
+        //   https://github.com/opencv/opencv/blob/12e2cc9502bc51bb01ed3fdd2f39ce1533c8236e/modules/core/src/lapack.cpp#L1032
+        //   a(rows, 6) * x(6, 1) = b(rows, 1)
+        // https://developer.apple.com/documentation/accelerate/solving_systems_of_linear_equations_with_lapack
+        //   -> macos 에서만 지원하는 듯해 여기에서는 사용하기 어려움. => LASwift 사용
+        let (x, _) = lstsqr(a, b) // solve equation
+        let rpy = x.T[row: 0]
         assert(rpy.count == 6)
         return (simd_double3(rpy[0 ..< 3]), simd_double3(rpy[3 ..< 6]))
     }
-    
-    // https://developer.apple.com/documentation/accelerate/solving_systems_of_linear_equations_with_lapack
-    //   -> macos 에서만 지원하는 듯
-    
     
     func getRejectionThreshold(
         r:[Float],
