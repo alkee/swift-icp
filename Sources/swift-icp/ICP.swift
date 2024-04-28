@@ -9,6 +9,19 @@ public struct PointCloud<T> {
 }
 
 public typealias PointCloud3f = PointCloud<simd_float3>
+func *(transform: simd_float4x4, self: PointCloud3f) -> PointCloud3f {
+    var ret: PointCloud3f = .init()
+    for p in self.points {
+        let p2 = transform * simd_float4(p, 1)
+        ret.points.append( simd_make_float3(p2) )
+    }
+    for p in self.normals {
+        let p2 = transform * simd_float4(p, 1)
+        ret.normals.append( simd_make_float3(p2) )
+    }
+    return ret
+}
+
 
 public struct TransformResult {
     var transformMatrix: simd_double4x4 = matrix_identity_double4x4
@@ -167,7 +180,10 @@ public class ICP {
                     selInd += 1
                 }
                 
-                if selInd >= 6 { // = dict.count.. 중복 선택되지않은 6개 이상의 점?? 왜 6 ?
+                if selInd > 6 { // = dict.count.. 중복 선택되지않은 6개 이상의 점?? 왜 6 ?
+                    // least squares solution 사용하는데 제약조건.. 요소가 0이 포함되면 계산할 수 없음??
+                    //  INFO parameter 참고 : https://www.netlib.org/clapack/CLAPACK-3.1.1/SRC/dgels.c
+                    
                     // TODO: PointCloud3f 대신 Matrix 를 직접 사용?
                     var srcMatch = PointCloud3f() // Matrix(selInd, 6)
                     var dstMatch = PointCloud3f()
@@ -216,7 +232,7 @@ public class ICP {
         }
         
         // sampling 등 preprocessing 했던 정보 복원
-        var (r, t) = pose.poseToRT()
+        var (r, t) = (pose.rotation, pose.translation)
         t = t / scale + meanAvg - r * meanAvg
         
         // residual 에는 meanAvg 안곱해주나?
@@ -251,19 +267,11 @@ public class ICP {
         return r
     }
     
-//    static func eulerToDCM(
-//        euler: simd_double3
-//    ) -> simd_double3x3 {
-//        // https://github.com/opencv/opencv_contrib/blob/ac994ed2b5b6dd37d60ae5cd4267b61ceefa052d/modules/surface_matching/src/c_utils.hpp#L178
-//        
-//    }
-    
-    
-    
+    // Kok Lim Low's linearization
     static func minimizePointToPlaneMetric(
         src: PointCloud3f,
         dst: PointCloud3f
-    ) -> (simd_double3, simd_double3) { // (rpy, t)
+    ) -> (simd_double3, simd_double3) { // (euler rotation, translation)
         // https://github.com/opencv/opencv_contrib/blob/ac994ed2b5b6dd37d60ae5cd4267b61ceefa052d/modules/surface_matching/src/icp.cpp#L195
         assert(src.points.count == dst.points.count)
         assert(src.points.count == dst.normals.count)
@@ -287,10 +295,15 @@ public class ICP {
         //   a(rows, 6) * x(6, 1) = b(rows, 1)
         // https://developer.apple.com/documentation/accelerate/solving_systems_of_linear_equations_with_lapack
         //   -> macos 에서만 지원하는 듯해 여기에서는 사용하기 어려움. => LASwift 사용
+        
+        assert(a.rows > 6) // full rank 문제(triangular factor zero) 피하기 위해. (lstsqr 함수 내 info == 6 "Error". 참고: https://www.netlib.org/clapack/CLAPACK-3.1.1/SRC/dgels.c
         let (x, _) = lstsqr(a, b) // solve equation
-        let rpy = x.T[row: 0]
-        assert(rpy.count == 6)
-        return (simd_double3(rpy[0 ..< 3]), simd_double3(rpy[3 ..< 6]))
+        let rpy_t = x.T[row: 0] // rows to array
+
+        assert(rpy_t.count == 6)
+        let r_euler = simd_double3(rpy_t[0 ..< 3])
+        let t = simd_double3(rpy_t[3 ..< 6])
+        return (r_euler, t)
     }
     
     func getRejectionThreshold(
@@ -388,10 +401,10 @@ public class ICP {
         pose: simd_double4x4
     ) -> PointCloud3f {
         // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/ppf_helpers.cpp#L568
-        // ?? 왜 단순히 곱하기만 하지 않지????
+        // ?? 왜 단순히 matrix multiply 하지 않지???? scale, translation 은 ??
         var pct = pc.points
         var pctN = pc.normals
-        let (r, _) = pose.poseToRT()
+        let r = pose.rotation
         for i in 0 ..< pc.points.count {
             let data = pc.points[i]
             let n1 = pc.normals[i]

@@ -50,6 +50,18 @@ func -(
 //    }
 // }
 
+//func *(
+//    left: simd_double3,
+//    right: Double
+//) -> simd_double3 {
+//    return .init(
+//        left.x * right,
+//        left.y * right,
+//        left.z * right
+//    )
+//}
+
+
 func /(
     left: simd_double3,
     right: Int
@@ -115,6 +127,9 @@ extension simd_double4 {
     func toDouble3() -> simd_double3 {
         return simd_double3(x: self.x, y: self.y, z: self.z)
     }
+    func toFloat4() -> simd_float4 {
+        return .init(Float(x), Float(y), Float(z), Float(w))
+    }
 }
 
 extension simd_double3 {
@@ -148,24 +163,46 @@ extension simd_float3 {
 }
 
 extension simd_double4x4 {
-    func poseToR() -> simd_double3x3 {
-        // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/c_utils.hpp#L92
-        let (col1, col2, col3, _) = self.columns
 
+    func toFloat4x4() -> simd_float4x4 {
+        .init(
+            columns.0.toFloat4(),
+            columns.1.toFloat4(),
+            columns.2.toFloat4(),
+            columns.3.toFloat4()
+        )
+    }
+
+    var translation: simd_double3 {
+        // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/c_utils.hpp#L97
+        return .init(columns.3.x, columns.3.y, columns.3.z)
+    }
+    
+    var scale: simd_double3 {
+        let a = columns.0.x
+        let b = columns.1.x
+        let c = columns.2.x
+        let e = columns.0.y
+        let f = columns.1.y
+        let g = columns.2.y
+        let i = columns.0.z
+        let j = columns.1.z
+        let k = columns.2.z
+        let xScale = sqrt((a*a) + (e*e) + (i*i))
+        let yScale = sqrt((b*b) + (f*f) + (j*j))
+        let zScale = sqrt((c*c) + (g*g) + (k*k))
+        return .init(xScale, yScale, zScale)
+    }
+    
+    var rotation: simd_double3x3 {
+        // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/c_utils.hpp#L92
+        let (col1, col2, col3, _) = columns
         return simd_double3x3(columns: (
             col1.toDouble3(),
             col2.toDouble3(),
             col3.toDouble3()
         ))
-    }
-
-    func poseToRT() -> (simd_double3x3, simd_double3) {
-        // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/c_utils.hpp#L97
-        let r = self.poseToR()
-        let (_, _, _, c) = self.columns
-        let t = c.toDouble3()
-        return (r, t)
-    }
+    }    
     
     init(t: simd_double3, r: simd_double3x3, s: simd_double3) {
         self.init(columns: (
@@ -175,6 +212,7 @@ extension simd_double4x4 {
             simd_double4(t.x, t.y, t.z, 1)
         ))
     }
+    
 }
 
 // MARK: KDTree
@@ -196,3 +234,4 @@ extension simd_float3: KDTreePoint {
         return Double(simd_distance_squared(self, otherPoint))
     }
 }
+
