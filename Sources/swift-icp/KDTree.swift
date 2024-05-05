@@ -43,15 +43,15 @@ public class KDTree<Element: KDTreePoint> {
         var minSqDist: Double = 0
         var bestIndex: Int = -1
         var bestIndexK: [Result] = .init(unsafeUninitializedCapacity: k) { _, _ in }
-        var bsetPoint: Element = point
+        var bestPoint: Element = point
         
         for _ in 0 ..< k {
-            searchK(point, &bestSqDist, &minSqDist, &bestIndex, &bsetPoint)
+            searchK(point, &bestSqDist, &minSqDist, &bestIndex, &bestPoint)
             if bestIndex < 0 {
                 break
             }
             bestIndexK.append(
-                Result(index: bestIndex, squaredDistance: bestSqDist, point: bsetPoint)
+                Result(index: bestIndex, squaredDistance: bestSqDist, point: bestPoint)
             )
             minSqDist = bestSqDist;
             bestSqDist = Double.greatestFiniteMagnitude
@@ -79,13 +79,12 @@ public class KDTree<Element: KDTreePoint> {
         let planeDist = pt.kdDimension(axis) - pivot.kdDimension(axis)
         let node = planeDist > 0 ? right : left
         node?.searchK(pt, &bestSqSoFar, &minSqDist, &bestIndex, &bestPt)
-
+        guard let anotherNode = planeDist > 0 ? left : right else {
+            return
+        }
         let planeDistSq = planeDist * planeDist
         if bestSqSoFar > planeDistSq {
-            let node = (((planeDist > 0 ? 1 : 0) + 1) % 2 == 0)
-                ? left
-                : right
-            node?.searchK(pt, &bestSqSoFar, &minSqDist, &bestIndex, &bestPt)
+            anotherNode.searchK(pt, &bestSqSoFar, &minSqDist, &bestIndex, &bestPt)
         }
     }
 

@@ -24,7 +24,10 @@ let package = Package(
         ),
         .testTarget(
             name: "swift-icpTests",
-            dependencies: ["swift-icp"]
+            dependencies: ["swift-icp"],
+            resources: [
+                .process("Resources"),
+            ]
         ),
     ]
 )

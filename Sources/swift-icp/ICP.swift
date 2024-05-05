@@ -1,11 +1,25 @@
 import Foundation
-import KDTree
-import simd
 import LASwift
+import simd
 
 public struct PointCloud<T> {
-    var points: [T] = []
-    var normals: [T] = [] // points 숫자와 같도록 강제 가능?
+    public init() {
+        self.init(points: [], normals: [])
+    }
+
+    public init(capacity: Int) {
+        self.points = .init(unsafeUninitializedCapacity: capacity) { _, _ in }
+        self.normals = .init(unsafeUninitializedCapacity: capacity) { _, _ in }
+    }
+
+    public init(points: [T], normals: [T]) {
+        assert(points.count == normals.count)
+        self.points = points
+        self.normals = normals
+    }
+
+    public var points: [T]
+    public var normals: [T]
 }
 
 public typealias PointCloud3f = PointCloud<simd_float3>
@@ -13,15 +27,14 @@ func *(transform: simd_float4x4, self: PointCloud3f) -> PointCloud3f {
     var ret: PointCloud3f = .init()
     for p in self.points {
         let p2 = transform * simd_float4(p, 1)
-        ret.points.append( simd_make_float3(p2) )
+        ret.points.append(simd_make_float3(p2))
     }
     for p in self.normals {
         let p2 = transform * simd_float4(p, 1)
-        ret.normals.append( simd_make_float3(p2) )
+        ret.normals.append(simd_make_float3(p2))
     }
     return ret
 }
-
 
 public struct TransformResult {
     var transformMatrix: simd_double4x4 = matrix_identity_double4x4
@@ -42,9 +55,10 @@ public class ICP {
     var numNeighborsCorr: Int = 1
     
     func registerModelToScene(
-        model: PointCloud3f,
-        scene: PointCloud3f
+        model: PointCloud3f, // floating
+        scene: PointCloud3f // reference
     ) -> TransformResult {
+        assert(model.normals.count > 0)
         // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/ppf_helpers.cpp#L71
         // 원본에서 mat rows 가 개수, cols 가 point(0,1,2), normal(3,4,5)
         let n = model.points.count
@@ -74,13 +88,13 @@ public class ICP {
             let MaxIterationsPyr = Int(round(Double(maxIterations / (level + 1))))
             
             // Obtain the sampled point clouds for this level : Also rotates the normals
-            var modelPct = ICP.transformPCPose(
+            var sampledModel = ICP.transformPCPose(
                 pc: PointCloud3f(points: tmpModelPoints, normals: tmpModelNormals),
                 pose: pose
             )
             let sampleStep = Int(round(Double(n) / Double(numSamples)))
-            modelPct = ICP.samplePCUniform(
-                pc: modelPct,
+            sampledModel = ICP.samplePCUniform(
+                pc: sampledModel,
                 sampleStep: sampleStep
             )
             
@@ -88,23 +102,23 @@ public class ICP {
              Tolga Birdal thinks that downsampling the scene points might decrease the accuracy.
              Hamdi Sahloul, however, notied that accuracy increased (pose residual decreased slightly).
              */
-            let scenePCS = ICP.samplePCUniform(
-                pc: scene,
+            let sampledScene = ICP.samplePCUniform(
+                pc: PointCloud3f(points: tmpScenePoints, normals: scene.normals),
                 sampleStep: sampleStep
             )
             
             // flann for knnSearch
-            let tree = KDTree.Build(points: scenePCS.points)
+            let tree = KDTree.Build(points: sampledScene.points)
             
             var fval_old: Double = 9999999999
             var fval_perc: Double = 0
             var fval_min: Double = 9999999999
             
-            var src_moved = modelPct // copy
+            var src_moved = sampledModel // copy
             
             var i = 0
             
-            var numElSrc = modelPct.points.count
+            var numElSrc = sampledModel.points.count
             var distances: [Float] = .init(repeating: 0, count: numElSrc)
             var indices: [Int] = .init(repeating: 0, count: numElSrc)
             
@@ -117,7 +131,8 @@ public class ICP {
             var poseX = matrix_identity_double4x4
             
             while !(fval_perc < (1 + TolP) && fval_perc > (1 - TolP))
-                && i < MaxIterationsPyr {
+                && i < MaxIterationsPyr
+            {
                 let results = ICP.query(from: tree, points: src_moved.points)
                 for (idx, r) in results.enumerated() {
                     newI[idx] = idx
@@ -131,9 +146,10 @@ public class ICP {
                     let threshold = getRejectionThreshold(
                         r: distances,
                         m: distances.count,
-                        outlierScale: Float(rejectionScale))
+                        outlierScale: Float(rejectionScale)
+                    )
                     let acceptInd = distances.map { val in
-                        return val < threshold
+                        val < threshold
                     }
                     for l in 0 ..< acceptInd.count {
                         if acceptInd[l] {
@@ -150,14 +166,16 @@ public class ICP {
                 // is assigned to the same model point m_j, then select p_i that corresponds
                 // to the minimum distance
                 
-                // 중목제거하고 할당되지않은 가장 가까운 점 찾기..? 더 간단한 방법은 없나?
+                // 중복제거하고 할당되지않은 가장 가까운 점 찾기..? 더 간단한 방법은 없나?
                 //   hash key : data value,  hash value : data index
                 //  최종 결과 indicesModel, indicesScene
                 // 이상한 hashtabe .. getHashtable 할떄 key, data 를 +1 해서 hashtableInsertHashed
                 //   그때문인지 매번 값 사용할 때, 검색(key)할 때 매번 -1 ..
                 
                 // 중복되는거면.. [value: [index]] 정도로 바꿔 사용하면..?
-                var dict: [Int:[Int]] = [:]
+                
+                // numElSrc 가 여기에 적용되어야 하는데..
+                var dict: [Int: [Int]] = [:]
                 for (i, v) in newJ.enumerated() {
                     if dict[v] == nil {
                         dict[v] = []
@@ -168,11 +186,11 @@ public class ICP {
                 for (key, inds) in dict {
                     var minIdxD = 0
                     var minDist = Float.greatestFiniteMagnitude
-                    for ind in inds {
-                        let dist = distances[ind]
+                    for idx in inds { // 가장 가까운 거리의 index(minIdxD) 찾기
+                        let dist = distances[idx]
                         if dist < minDist {
                             minDist = dist
-                            minIdxD = ind
+                            minIdxD = idx
                         }
                     }
                     indicesModel[selInd] = newI[minIdxD]
@@ -185,15 +203,15 @@ public class ICP {
                     //  INFO parameter 참고 : https://www.netlib.org/clapack/CLAPACK-3.1.1/SRC/dgels.c
                     
                     // TODO: PointCloud3f 대신 Matrix 를 직접 사용?
-                    var srcMatch = PointCloud3f() // Matrix(selInd, 6)
-                    var dstMatch = PointCloud3f()
+                    var srcMatch = PointCloud3f(capacity: selInd) // Matrix(selInd, 6)
+                    var dstMatch = PointCloud3f(capacity: selInd)
                     for i in 0 ..< selInd {
                         let indModel = indicesModel[i]
                         let indScene = indicesScene[i]
-                        let srcPt = modelPct.points[indModel]
-                        let srcN = modelPct.normals[indModel]
-                        let dstPt = scenePCS.points[indScene]
-                        let dstN = scenePCS.normals[indScene]
+                        let srcPt = sampledModel.points[indModel]
+                        let srcN = sampledModel.normals[indModel]
+                        let dstPt = sampledScene.points[indScene]
+                        let dstN = sampledScene.normals[indScene]
 
                         srcMatch.points.append(srcPt)
                         srcMatch.normals.append(srcN)
@@ -203,10 +221,11 @@ public class ICP {
                     let (rpy, t) = ICP.minimizePointToPlaneMetric(src: srcMatch, dst: dstMatch)
                     // TODO: confirm same validation (cvIsNaN(cv::trace(rpy)) || cvIsNaN(cv::norm(t)))
                     if rpy.hasNan() || t.hasNan() {
+                        print("------ has Nan value in transform ------")
                         break
                     }
                     poseX = ICP.getTransformMatrix(euler: rpy, t: t)
-                    src_moved = ICP.transformPCPose(pc: modelPct, pose: poseX)
+                    src_moved = ICP.transformPCPose(pc: sampledModel, pose: poseX)
                     
                     let fval = ICP.norm_l2(srcMatch.points, dstMatch.points) / Double(srcMatch.points.count)
                     
@@ -219,16 +238,17 @@ public class ICP {
                     if fval < fval_min {
                         fval_min = fval
                     }
-                }
-                else {
+                } else { // selInd <= 6
                     break
                 }
                 i += 1
+                print("level[\(level)], iter[\(i)] faval_min = \(fval_min), fval=\(fval_old)")
             }
             
             pose = poseX * pose
             residual = tempResidual > 0 ? tempResidual : fval_min
             tempResidual = fval_min
+            print("-- level[\(level)], residual = \(residual)")
         }
         
         // sampling 등 preprocessing 했던 정보 복원
@@ -242,7 +262,8 @@ public class ICP {
             residual: residual
         )
     }
-        
+    
+    /// 각 paried point 의 거리 합
     static func norm_l2(
         _ src1: [simd_float3],
         _ src2: [simd_float3]
@@ -307,7 +328,7 @@ public class ICP {
     }
     
     func getRejectionThreshold(
-        r:[Float],
+        r: [Float],
         m: Int,
         outlierScale: Float
     ) -> Float {
@@ -329,7 +350,7 @@ public class ICP {
         var high = n - 1
         let median = (low + high) >> 1
         
-        while(true) {
+        while true {
             if high <= low {
                 return arr[median]
             }
@@ -341,7 +362,7 @@ public class ICP {
                 return arr[median]
             }
             /* Find median of low, middle and high items; swap into position low */
-            let middle = (low + high) >> 1;
+            let middle = (low + high) >> 1
             if arr[middle] > arr[high] {
                 arr.swapAt(middle, high)
             }
@@ -352,12 +373,12 @@ public class ICP {
                 arr.swapAt(middle, low)
             }
             /* low item is now in position middle */
-            arr.swapAt(middle, low+1)
+            arr.swapAt(middle, low + 1)
             
             /* Nibble from each end towards middle, swapping items when stuck */
             var ll = low + 1
             var hh = high
-            while(true) {
+            while true {
                 repeat {
                     ll += 1
                 } while arr[low] > arr[ll]
@@ -437,19 +458,15 @@ public class ICP {
         assert(pc.points.count == pc.normals.count)
         assert(sampleStep > 0)
         
-        let numRows = pc.points.count / sampleStep
+        let reserveRows = (pc.points.count / sampleStep) + 1
         var sampledPC = PointCloud3f()
-        sampledPC.points = .init(unsafeUninitializedCapacity: numRows) { _, _ in }
-        sampledPC.normals = .init(unsafeUninitializedCapacity: numRows) { _, _ in }
+        sampledPC.points = .init(unsafeUninitializedCapacity: reserveRows) { _, _ in }
+        sampledPC.normals = .init(unsafeUninitializedCapacity: reserveRows) { _, _ in }
 
         for i in stride(from: 0, to: pc.points.count, by: sampleStep) {
             sampledPC.points.append(pc.points[i])
             sampledPC.normals.append(pc.normals[i])
         }
-        
-        assert(sampledPC.points.count == numRows)
         return sampledPC
     }
-    
 }
-
