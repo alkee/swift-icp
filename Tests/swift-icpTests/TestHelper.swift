@@ -3,17 +3,6 @@ import ModelIO
 import simd
 import swift_icp
 
-// only works for paried points
-func mean_distance(_ points1: [simd_float3], _ points2: [simd_float3]) -> Double {
-    assert(points1.count == points2.count)
-    let cnt = Float(points1.count)
-    var ret = 0.0
-    for i in 0 ..< points1.count {
-        ret += Double(simd_distance(points1[i], points2[i]) / cnt)
-    }
-    return ret
-}
-
 func load_pointcloud(obj_name: String) -> PointCloud3f {
     let url = Bundle.module.url(forResource: obj_name, withExtension: "obj")!
     let asset = MDLAsset(url: url)
@@ -42,4 +31,19 @@ func load_pointcloud(obj_name: String) -> PointCloud3f {
         normals.append(simd_float3(nx, ny, nz))
     }
     return PointCloud3f(points: points, normals: normals)
+}
+
+// MARK: converting to cloud compare transform text
+
+func ccText(by: simd_double4) -> String {
+    return "\(by.x) \(by.y) \(by.z) \(by.w)"
+}
+
+func ccText(by: simd_double4x4) -> String {
+    var result = ""
+    result += "\(ccText(by: by.columns.0))\n"
+    result += "\(ccText(by: by.columns.1))\n"
+    result += "\(ccText(by: by.columns.2))\n"
+    result += "\(ccText(by: by.columns.3))"
+    return result
 }

@@ -11,6 +11,30 @@ final class exercise: XCTestCase {
         
         print("** x=\(x)")
         print("** y=\(y)")
+        
+        var xx = [1, 2, 3, 4, 5]
+        var yy = xx
+        
+        yy[2] = 10
+        print("** xx=\(xx)")
+        print("** yy=\(yy)")
+        
+        let pc1 = PointCloud3f(
+            points: [
+                .one,
+                .zero,
+            ],
+            normals: [
+                .one,
+                .zero,
+            ]
+        )
+        var pc2 = pc1
+        
+        pc2.points[0] = .zero
+        
+        print("** pc1=\(pc1.points[0])")
+        print("** pc2=\(pc2.points[0])")
     }
     
     func test_matrix() {

@@ -50,17 +50,16 @@ func -(
 //    }
 // }
 
-//func *(
+// func *(
 //    left: simd_double3,
 //    right: Double
-//) -> simd_double3 {
+// ) -> simd_double3 {
 //    return .init(
 //        left.x * right,
 //        left.y * right,
 //        left.z * right
 //    )
-//}
-
+// }
 
 func /(
     left: simd_double3,
@@ -127,6 +126,7 @@ extension simd_double4 {
     func toDouble3() -> simd_double3 {
         return simd_double3(x: self.x, y: self.y, z: self.z)
     }
+
     func toFloat4() -> simd_float4 {
         return .init(Float(x), Float(y), Float(z), Float(w))
     }
@@ -136,19 +136,22 @@ extension simd_double3 {
     func toDouble4(_ w: Double = 1) -> simd_double4 {
         return simd_double4(x: self.x, y: self.y, z: self.z, w: w)
     }
+
     func toArray() -> [Double] {
-        return [ x, y, z ]
+        return [x, y, z]
     }
+
     func hasNan() -> Bool {
         return x.isNaN || y.isNaN || z.isNaN
     }
+
     func eulerToQuaternion() -> simd_quatd {
         // pitch : x axis, roll : y axis, yaw : z axis
         // https://math.stackexchange.com/a/2975462
-        let qx = sin(y*0.5) * cos(x*0.5) * cos(z*0.5) - cos(y*0.5) * sin(x*0.5) * sin(z*0.5)
-        let qy = cos(y*0.5) * sin(x*0.5) * cos(z*0.5) + sin(y*0.5) * cos(x*0.5) * sin(z*0.5)
-        let qz = cos(y*0.5) * cos(x*0.5) * sin(z*0.5) - sin(y*0.5) * sin(x*0.5) * cos(z*0.5)
-        let qw = cos(y*0.5) * cos(x*0.5) * cos(z*0.5) + sin(y*0.5) * sin(x*0.5) * sin(z*0.5)
+        let qx = sin(y*0.5)*cos(x*0.5)*cos(z*0.5) - cos(y*0.5)*sin(x*0.5)*sin(z*0.5)
+        let qy = cos(y*0.5)*sin(x*0.5)*cos(z*0.5) + sin(y*0.5)*cos(x*0.5)*sin(z*0.5)
+        let qz = cos(y*0.5)*cos(x*0.5)*sin(z*0.5) - sin(y*0.5)*sin(x*0.5)*cos(z*0.5)
+        let qw = cos(y*0.5)*cos(x*0.5)*cos(z*0.5) + sin(y*0.5)*sin(x*0.5)*sin(z*0.5)
         return simd_quatd(ix: qx, iy: qy, iz: qz, r: qw)
     }
 }
@@ -157,13 +160,13 @@ extension simd_float3 {
     func toDobule() -> simd_double3 {
         return simd_double3(x: Double(self.x), y: Double(self.y), z: Double(self.z))
     }
+
     init(_ from: simd_double3) {
         self.init(x: Float(from.x), y: Float(from.y), z: Float(from.z))
     }
 }
 
 extension simd_double4x4 {
-
     func toFloat4x4() -> simd_float4x4 {
         .init(
             columns.0.toFloat4(),
@@ -177,7 +180,7 @@ extension simd_double4x4 {
         // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/c_utils.hpp#L97
         return .init(columns.3.x, columns.3.y, columns.3.z)
     }
-    
+
     var scale: simd_double3 {
         let a = columns.0.x
         let b = columns.1.x
@@ -193,7 +196,7 @@ extension simd_double4x4 {
         let zScale = sqrt((c*c) + (g*g) + (k*k))
         return .init(xScale, yScale, zScale)
     }
-    
+
     var rotation: simd_double3x3 {
         // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/c_utils.hpp#L92
         let (col1, col2, col3, _) = columns
@@ -202,17 +205,16 @@ extension simd_double4x4 {
             col2.toDouble3(),
             col3.toDouble3()
         ))
-    }    
-    
+    }
+
     init(t: simd_double3, r: simd_double3x3, s: simd_double3) {
         self.init(columns: (
-            simd_double4(s.x * r[0,0], s.x * r[0,1], s.x * r[0,2], 0),
-            simd_double4(s.y * r[1,0], s.y * r[1,1], s.y * r[1,2], 0),
-            simd_double4(s.z * r[2,0], s.z * r[2,1], s.z * r[2,2], 0),
+            simd_double4(s.x*r[0, 0], s.x*r[0, 1], s.x*r[0, 2], 0),
+            simd_double4(s.y*r[1, 0], s.y*r[1, 1], s.y*r[1, 2], 0),
+            simd_double4(s.z*r[2, 0], s.z*r[2, 1], s.z*r[2, 2], 0),
             simd_double4(t.x, t.y, t.z, 1)
         ))
     }
-    
 }
 
 // MARK: KDTree
@@ -235,3 +237,39 @@ extension simd_float3: KDTreePoint {
     }
 }
 
+// only works for paried points
+func mean_distance(_ points1: [simd_float3], _ points2: [simd_float3]) -> Double {
+    assert(points1.count == points2.count)
+    let cnt = Float(points1.count)
+    var ret = 0.0
+    for i in 0 ..< points1.count {
+        ret += Double(simd_distance(points1[i], points2[i]) / cnt)
+    }
+    return ret
+}
+
+func minmax(_ points: [simd_float3]) -> (simd_float3, simd_float3) {
+    assert(points.count > 0)
+    var min: simd_float3 = .one * .greatestFiniteMagnitude
+    var max: simd_float3 = -min
+    for p in points {
+        if min.x > p.x { min.x = p.x }
+        if min.y > p.y { min.y = p.y }
+        if min.z > p.z { min.z = p.z }
+        if max.x < p.x { max.x = p.x }
+        if max.y < p.y { max.y = p.y }
+        if max.z < p.z { max.z = p.z }
+    }
+    return (min, max)
+}
+
+// minmax to center, size
+func bbox(_ min: simd_float3, _ max: simd_float3) -> (simd_float3, simd_float3) {
+    let center = max - min
+    let size = simd_float3(
+        abs(max.x - min.x),
+        abs(max.y - min.y),
+        abs(max.z - min.z)
+    )
+    return (center, size)
+}

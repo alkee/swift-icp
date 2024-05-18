@@ -8,7 +8,7 @@ final class ICP_Test: XCTestCase {
     var modelBox: PointCloud3f!
     var sceneBox: PointCloud3f!
     let sampleTransform = simd_double4x4(
-        t: .init(-0.2, -0.2, -0.2),
+        t: .init(5, -5, 0),
         //        r: matrix_identity_double3x3,
         r: simd_double3x3(simd_double3(0.1, 0.2, 0.3).eulerToQuaternion()),
         s: .one)
@@ -95,6 +95,27 @@ final class ICP_Test: XCTestCase {
         XCTAssertLessThan(md2, md1)
     }
     
+//    func test_minimizePointToPlaneMetric2() {
+//        let t = simd_double4x4(
+//            t: .init(2, 3, 4),
+//            r: simd_double3x3(simd_double3(0.1, 0.2, 0.3).eulerToQuaternion()),
+//            s: .one)
+//
+//        let src = sceneBox!
+//        let dst = t.toFloat4x4() * src
+//        let md0 = mean_distance(src.points, dst.points)
+//        print("** md0 = \(md0)")
+//        
+//        let (r0, t0) = ICP.minimizePointToPlaneMetric(src: src, dst: dst)
+//        var transform = simd_double4x4(
+//            t: t0,
+//            r: simd_double3x3(r0.eulerToQuaternion()),
+//            s: .one)
+//        var src_moved = transform.toFloat4x4() * src
+//        let md1 = mean_distance(src_moved.points, dst.points)
+//        print("** md1 = \(md1)")
+//    }
+    
     func test_norm_l2() {
         let p1:[simd_float3] = [
             .init(0, 0, 0),
@@ -112,10 +133,26 @@ final class ICP_Test: XCTestCase {
         XCTAssertEqual(l2n, sum, accuracy: 0.001)
     }
     
+    func test_getTransformMatrix() {
+        let t1 = ICP.getTransformMatrix(euler: .zero, t: .one)
+        XCTAssertEqual(t1.translation, .one)
+        XCTAssertEqual(t1.rotation, matrix_identity_double3x3)
+        
+    }
     
     func test_registerModelToScene() {
+        let t = simd_double4x4(
+            t: .init(15, 0, -15),
+            //        r: matrix_identity_double3x3,
+            r: simd_double3x3(simd_double3(0.1, -0.15, 0.2).eulerToQuaternion()),
+            s: .one)
+        
+        print("### transform \n \(ccText(by: t))")
+        print("### t.scale : \(t.scale)")
+        
+
         let pc = load_pointcloud(obj_name: "sample_skin")
-        let t_pc = sampleTransform.toFloat4x4() * pc
+        let t_pc = t.toFloat4x4() * pc
 
         let md0 = mean_distance(pc.points, t_pc.points)
         print("** md0 = \(md0)")
@@ -125,6 +162,7 @@ final class ICP_Test: XCTestCase {
         print("** residual = \(result.residual)")
         print("** result = \(result.transformMatrix)")
         print("** expected = \(sampleTransform)")
+        print("### transform result \n \(ccText(by: result.transformMatrix))")
 
         let transformed = result.transformMatrix.toFloat4x4() * pc
         let md = mean_distance(t_pc.points, transformed.points)

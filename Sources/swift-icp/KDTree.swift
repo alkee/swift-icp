@@ -11,9 +11,9 @@ public protocol KDTreePoint: Equatable {
 
 public class KDTree<Element: KDTreePoint> {
     public struct Result {
-        var index: Int = 0
-        var squaredDistance: Double = 0
-        var point: Element
+        var index: Int = -1
+        var squaredDistance: Double = -1
+        var point: Element? = nil
     }
     
     let pivot: Element
@@ -68,6 +68,7 @@ public class KDTree<Element: KDTreePoint> {
         _ bestIndex: inout Int,
         _ bestPt: inout Element
     ) {
+        // recursive 해서 parallel 로 성능을 높일 수 없음..
         let sqd = pt.squaredDistance(to: pivot)
         if sqd < bestSqSoFar {
             if sqd > minSqDist {
