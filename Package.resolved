@@ -1,5 +1,5 @@
 {
-  "originHash" : "8fd5872a8c44d157a959d2a71ae3e2f76cd5f95778549eba74586a280e645c8c",
+  "originHash" : "5786553bbbd8b0da99820185d3b8643eb6acaed54a8f4dc7a2c2b9a0f037e0e4",
   "pins" : [
     {
       "identity" : "cwlcatchexception",
@@ -44,6 +44,15 @@
       "state" : {
         "revision" : "f9d519828bb03dfc8125467d8f7b93131951124c",
         "version" : "5.0.1"
+      }
+    },
+    {
+      "identity" : "swiftannoy",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/jbadger3/SwiftAnnoy",
+      "state" : {
+        "revision" : "308d4c9c241809b18d1589b304a5706e42115745",
+        "version" : "1.0.1"
       }
     }
   ],

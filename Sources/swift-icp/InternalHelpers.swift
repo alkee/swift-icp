@@ -98,13 +98,13 @@ extension [simd_float3] {
     func mean() -> simd_double3 {
         // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/icp.cpp#L63
         guard self.count > 0 else {
-            return simd_double3()
+            return .zero
         }
-        var acc = simd_double3()
+        var acc = simd_double3(0, 0, 0)
         for x in self {
             acc += x
         }
-        return acc / self.count
+        return acc / Double(self.count)
     }
 
     func totalLength() -> Double {
@@ -144,16 +144,57 @@ extension simd_double3 {
     func hasNan() -> Bool {
         return x.isNaN || y.isNaN || z.isNaN
     }
-
-    func eulerToQuaternion() -> simd_quatd {
-        // pitch : x axis, roll : y axis, yaw : z axis
-        // https://math.stackexchange.com/a/2975462
-        let qx = sin(y*0.5)*cos(x*0.5)*cos(z*0.5) - cos(y*0.5)*sin(x*0.5)*sin(z*0.5)
-        let qy = cos(y*0.5)*sin(x*0.5)*cos(z*0.5) + sin(y*0.5)*cos(x*0.5)*sin(z*0.5)
-        let qz = cos(y*0.5)*cos(x*0.5)*sin(z*0.5) - sin(y*0.5)*sin(x*0.5)*cos(z*0.5)
-        let qw = cos(y*0.5)*cos(x*0.5)*cos(z*0.5) + sin(y*0.5)*sin(x*0.5)*sin(z*0.5)
-        return simd_quatd(ix: qx, iy: qy, iz: qz, r: qw)
+    
+    func eulerToRotation() -> simd_double3x3 {
+        let sx = sin(x)
+        let cx = cos(x)
+        var rx = simd_double3x3(1) // eye
+        rx.columns.1.y = cx
+        rx.columns.2.y = -sx
+        rx.columns.1.z = sx
+        rx.columns.2.z = cx
+        
+        let sy = sin(y)
+        let cy = cos(y)
+        var ry = simd_double3x3(1) // eye
+        ry.columns.0.x = cy
+        ry.columns.2.x = sy
+        ry.columns.0.z = -sy
+        ry.columns.2.z = cy
+        
+        let sz = sin(z)
+        let cz = cos(z)
+        var rz = simd_double3x3(1) // eye
+        rz.columns.0.x = cz
+        rz.columns.1.x = -sz
+        rz.columns.0.y = sz
+        rz.columns.1.y = cz
+        
+        return (rx*(ry*rz))
     }
+
+//    func eulerToQuaternion() -> simd_quatd {
+//        // 이거.. 근사값인지.. 반복되는 rotation 에서(minimizePointToPlaneMetric) 수렴이 안됨
+//        fatalError()
+//
+//        
+////        // pitch : x axis, roll : y axis, yaw : z axis
+////        // https://math.stackexchange.com/a/2975462
+////        let qx = sin(y*0.5)*cos(x*0.5)*cos(z*0.5) - cos(y*0.5)*sin(x*0.5)*sin(z*0.5)
+////        let qy = cos(y*0.5)*sin(x*0.5)*cos(z*0.5) + sin(y*0.5)*cos(x*0.5)*sin(z*0.5)
+////        let qz = cos(y*0.5)*cos(x*0.5)*sin(z*0.5) - sin(y*0.5)*sin(x*0.5)*cos(z*0.5)
+////        let qw = cos(y*0.5)*cos(x*0.5)*cos(z*0.5) + sin(y*0.5)*sin(x*0.5)*sin(z*0.5)
+////        return simd_quatd(ix: qx, iy: qy, iz: qz, r: qw)
+//
+////        // https://math.stackexchange.com/a/2975462
+////        //  let (yaw, pitch, roll) = (x, y, z)
+////        let qx = sin(z*0.5)*cos(y*0.5)*cos(x*0.5) - cos(z*0.5)*sin(y*0.5)*sin(x*0.5)
+////        let qy = cos(z*0.5)*sin(y*0.5)*cos(x*0.5) + sin(z*0.5)*cos(y*0.5)*sin(x*0.5)
+////        let qz = cos(z*0.5)*cos(y*0.5)*sin(x*0.5) - sin(z*0.5)*sin(y*0.5)*cos(x*0.5)
+////        let qw = cos(z*0.5)*cos(y*0.5)*cos(x*0.5) + sin(z*0.5)*sin(y*0.5)*sin(x*0.5)
+////        return simd_quatd(ix: qx, iy: qy, iz: qz, r: qw)
+//    }
+    
 }
 
 extension simd_float3 {
@@ -163,6 +204,17 @@ extension simd_float3 {
 
     init(_ from: simd_double3) {
         self.init(x: Float(from.x), y: Float(from.y), z: Float(from.z))
+    }
+}
+
+extension simd_float4x4 {
+    func toDouble4x4() -> simd_double4x4 {
+        .init(
+            simd_double4(columns.0),
+            simd_double4(columns.1),
+            simd_double4(columns.2),
+            simd_double4(columns.3)
+        )
     }
 }
 
@@ -264,12 +316,27 @@ func minmax(_ points: [simd_float3]) -> (simd_float3, simd_float3) {
 }
 
 // minmax to center, size
-func bbox(_ min: simd_float3, _ max: simd_float3) -> (simd_float3, simd_float3) {
-    let center = max - min
+func bbox(
+    _ min: simd_float3,
+    _ max: simd_float3
+) -> (simd_float3, simd_float3) {
+    let center = (max + min) * 0.5
     let size = simd_float3(
         abs(max.x - min.x),
         abs(max.y - min.y),
         abs(max.z - min.z)
     )
     return (center, size)
+}
+
+func bbox(
+    _ minmax: (min: simd_float3, max: simd_float3)
+) -> (simd_float3, simd_float3) {
+    return bbox(minmax.min, minmax.max)
+}
+
+func bbox(
+    _ points: [simd_float3]
+) -> (simd_float3, simd_float3) {
+    return bbox(minmax(points))
 }
