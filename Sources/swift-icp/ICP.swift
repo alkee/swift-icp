@@ -87,24 +87,19 @@ public class ICP {
         let useRobustReject = rejectionScale > 0
         
         // preprocessing
-        let meanModelPoint = model.points.mean()
-        let meanScenePoint = scene.points.mean()
-        print("** mean model: \(meanModelPoint) scene: \(meanScenePoint)")
+        let meanSrc = model.points.mean()
+        let meanDst = scene.points.mean()
+        print("** mean model: \(meanSrc) scene: \(meanDst)")
         
-//        let m_box = bbox(minmax(model.points))
-//        let s_box = bbox(minmax(scene.points))
-//        print("** bbox model: \(m_box) scene: \(s_box)")
-//        let meanAvg = ((m_box.0 + s_box.0) * 0.5).toDobule()
-
-        let meanAvg = (meanModelPoint + meanScenePoint) * 0.5
-        var tmpModelPoints = model.points - meanAvg
-        var tmpScenePoints = scene.points - meanAvg
+        let meanAvg = (meanSrc + meanDst) * 0.5
+        var srcTemp = model.points - meanAvg
+        var dstTemp = scene.points - meanAvg
         
-        let distModel = tmpModelPoints.totalLength()
-        let distScene = tmpScenePoints.totalLength()
-        let scale = Double(n) / ((distModel + distScene) * 0.5) // why ???
-        tmpModelPoints *= scale
-        tmpScenePoints *= scale
+        let distSrc = srcTemp.totalLength()
+        let distDst = dstTemp.totalLength()
+        let scale = Double(n) / ((distSrc + distDst) * 0.5) // why ???
+        srcTemp *= scale
+        dstTemp *= scale
         print("** preprocessing meanAvg: \(meanAvg) scale : \(scale)")
         ////////////////////////////////////////////////////////// preprocessing
 
@@ -121,13 +116,13 @@ public class ICP {
 
             // Obtain the sampled point clouds for this level : Also rotates the normals
             //  왜 sampling 을 먼저 하고 transform 하지 않지?
-            var sampledModel = ICP.transformPCPose( // srcPCT
-                pc: PointCloud3f(points: tmpModelPoints, normals: model.normals),
+            var sampledSrc = ICP.transformPCPose( // srcPCT
+                pc: PointCloud3f(points: srcTemp, normals: model.normals),
                 pose: pose
             )
             let sampleStep = Int(round(Double(n) / Double(numSamples)))
-            sampledModel = ICP.samplePCUniform(
-                pc: sampledModel,
+            sampledSrc = ICP.samplePCUniform(
+                pc: sampledSrc,
                 sampleStep: sampleStep
             )
 
@@ -135,18 +130,18 @@ public class ICP {
              Tolga Birdal thinks that downsampling the scene points might decrease the accuracy.
              Hamdi Sahloul, however, notied that accuracy increased (pose residual decreased slightly).
              */
-            let sampledScene = ICP.samplePCUniform( // dstPCS
-                pc: PointCloud3f(points: tmpScenePoints, normals: scene.normals),
+            let sampledDst = ICP.samplePCUniform( // dstPCS
+                pc: PointCloud3f(points: dstTemp, normals: scene.normals),
                 sampleStep: sampleStep
             )
             
             // void* flann = indexPCFlann(dstPCS); // distance 기반의 flann
-            let flann = FLANN(points: sampledScene.points)
+            let flann = FLANN(points: sampledDst.points)
             var fval_old: Double = 9999999999
             var fval_perc: Double = 0
             var fval_min: Double = 9999999999
             
-            var src_moved = sampledModel // copy
+            var src_moved = sampledSrc // copy
             var i = 0
             
             var numElSrc = src_moved.points.count
@@ -164,14 +159,12 @@ public class ICP {
             while !(fval_perc < (1 + TolP) && fval_perc > (1 - TolP))
                 && i < MaxIterationsPyr
             {
-//                let results = ICP.query(from: tree, points: src_moved.points)
                 let results = ICP.query(from: flann, points: src_moved.points)
 //                print("-- [\(level)-\(i)] scene=\(bbox(sampledScene.points)), model=\(bbox(src_moved.points))")
                 for (idx, r) in results.enumerated() {
                     newI[idx] = idx
                     newJ[idx] = r.index
                     indices[idx] = r.index
-//                    distances[idx] = sqrt(Float(r.squaredDistance))
                     distances[idx] = r.distance
                 }
                 
@@ -242,21 +235,16 @@ public class ICP {
                         let indModel = indicesModel[i]
                         let indScene = indicesScene[i]
                         
-                        let srcPt = sampledModel.points[indModel]
-                        let dstPt = sampledScene.points[indScene]
+                        let srcPt = sampledSrc.points[indModel]
+                        let dstPt = sampledDst.points[indScene]
                         srcMatch.points.append(srcPt)
                         dstMatch.points.append(dstPt)
 
-                        let srcN = sampledModel.normals[indModel]
-                        let dstN = sampledScene.normals[indScene]
+                        let srcN = sampledSrc.normals[indModel]
+                        let dstN = sampledDst.normals[indScene]
                         srcMatch.normals.append(srcN) // 사용하지는 않음
                         dstMatch.normals.append(dstN)
                     }
-//                    let (min_src, max_src) = minmax(srcMatch.points)
-//                    let (min_dst, max_dst) = minmax(dstMatch.points)
-//                    let (center_src, size_src) = bbox(min_src, max_src)
-//                    let (center_dst, size_dst) = bbox(min_dst, max_dst)
-//                    print("-- [\(level)-\(i)] src = \(center_src)/\(size_src), dst = \(center_dst)/\(size_dst)")
 
                     let (rpy, t) = ICP.minimizePointToPlaneMetric(src: srcMatch, dst: dstMatch)
                     let md = mean_distance(srcMatch.points, dstMatch.points)
@@ -275,7 +263,7 @@ public class ICP {
                     }
 
                     poseX = ICP.getTransformMatrix(euler: rpy, t: t)
-                    src_moved = ICP.transformPCPose(pc: sampledModel, pose: poseX)
+                    src_moved = ICP.transformPCPose(pc: sampledSrc, pose: poseX)
                     
 //                    print("-- transformed distance : sampledModel=\(mean_distance(sampledModel.points, src_moved.points)), sampledScene=\(mean_distance(sampledScene.points, src_moved.points))")
 
@@ -305,17 +293,17 @@ public class ICP {
             tempResidual = fval_min
 //            print("-- [\(level)], residual = \(residual), pose = \(pose), poseX = \(poseX)")
             print("-- [\(level)] residual = \(residual)")
-        } // for level
-        
-        // scale, meanAvg 등 preprocessing 했던 정보 복원
-        var (r, t) = (pose.rotation, pose.translation) // poseToRT
-        t = t / scale + meanAvg - r * meanAvg
+        } // for level(pyramid)
         
         // residual 에는 scale 안나눠주나?
         residual = tempResidual
         
+        // scale, meanAvg 등 preprocessing 했던 정보 복원
+        let (r, t) = (pose.rotation, pose.translation) // poseToRT
+//        let restored_t = t / scale + meanAvg - r * meanAvg // 원본대로 하면 반대 위치로 간다???
+        let restored_t = t / scale - meanAvg + r * meanAvg
         return TransformResult(
-            transformMatrix: simd_double4x4(t: t, r: r, s: .one),
+            transformMatrix: simd_double4x4(t: restored_t, r: r, s: .one),
             residual: residual
         )
     }

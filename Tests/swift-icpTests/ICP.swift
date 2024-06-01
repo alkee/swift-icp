@@ -214,9 +214,9 @@ final class ICP_Test: XCTestCase {
         //   iteration 중에 scene-model 중심 거리가 점점 커지기도...
         
         let t = simd_double4x4(
-            t: .init(150, 0, -150),
+            t: .init(25, -25, -15),
             //        r: matrix_identity_double3x3,
-            r: simd_double3(0.1, -0.15, 0.2).eulerToRotation(),
+            r: simd_double3(0.4, -0.35, 0.4).eulerToRotation(),
             s: .one)
 
         let pc = load_pointcloud(obj_name: "sample_skin") // floating
@@ -235,10 +235,12 @@ final class ICP_Test: XCTestCase {
         let result = icp.registerModelToScene(model: pc, scene: t_pc)
         print("** residual = \(result.residual)")
         print("** result = \(ccText(by: result.transformMatrix))")
+        print("** result_t = \(result.transformMatrix.translation)")
         print("** expected = \(ccText(by: t))")
+        print("** expected_t = \(t.translation)")
 
         let transformed = ICP.transformPCPose(pc: pc, pose: result.transformMatrix) // pc.transform(matrix: result.transformMatrix)
         let md = mean_distance(t_pc.points, transformed.points)
-        print("** md0 = \(md0), md = \(md)")
+        print("** md0= \(md0), md= \(md)")
     }
 }

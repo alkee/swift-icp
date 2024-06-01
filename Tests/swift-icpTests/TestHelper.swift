@@ -39,8 +39,9 @@ func ccText(by: simd_double4) -> String {
     return "\(by.x) \(by.y) \(by.z) \(by.w)"
 }
 
-func ccText(by: simd_double4x4) -> String {
+func ccText(by: simd_double4x4, cmajor: Bool = true) -> String {
     var result = ""
+    let by = cmajor ? by.transpose : by
     result += "\(ccText(by: by.columns.0))\n"
     result += "\(ccText(by: by.columns.1))\n"
     result += "\(ccText(by: by.columns.2))\n"
