@@ -42,7 +42,8 @@ public class KDTree<Element: KDTreePoint> {
         var bestSqDist: Double = Double.greatestFiniteMagnitude
         var minSqDist: Double = 0
         var bestIndex: Int = -1
-        var bestIndexK: [Result] = .init(unsafeUninitializedCapacity: k) { _, _ in }
+        var bestIndexK: [Result] = []
+        bestIndexK.reserveCapacity(k)
         var bestPoint: Element = point
         
         for _ in 0 ..< k {

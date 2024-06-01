@@ -75,8 +75,8 @@ public class ICP {
     var numNeighborsCorr: Int = 1
     
     func registerModelToScene(
-        model: PointCloud3f, // floating
-        scene: PointCloud3f // reference
+        model: PointCloud3f, // floating - source
+        scene: PointCloud3f // reference - target
     ) -> TransformResult {
         assert(model.normals.count > 0)
         // TODO: normal 에 0,0,0 포함되어있는 경우 NaN return 가능성 검증
@@ -85,19 +85,29 @@ public class ICP {
         // 원본에서 mat rows 가 개수, cols 가 point(0,1,2), normal(3,4,5)
         let n = model.points.count
         let useRobustReject = rejectionScale > 0
+        
+        // preprocessing
         let meanModelPoint = model.points.mean()
         let meanScenePoint = scene.points.mean()
-        print("** mean  model: \(meanModelPoint) scene: \(meanScenePoint)")
+        print("** mean model: \(meanModelPoint) scene: \(meanScenePoint)")
+        
+//        let m_box = bbox(minmax(model.points))
+//        let s_box = bbox(minmax(scene.points))
+//        print("** bbox model: \(m_box) scene: \(s_box)")
+//        let meanAvg = ((m_box.0 + s_box.0) * 0.5).toDobule()
+
         let meanAvg = (meanModelPoint + meanScenePoint) * 0.5
         var tmpModelPoints = model.points - meanAvg
         var tmpScenePoints = scene.points - meanAvg
+        
         let distModel = tmpModelPoints.totalLength()
         let distScene = tmpScenePoints.totalLength()
         let scale = Double(n) / ((distModel + distScene) * 0.5) // why ???
         tmpModelPoints *= scale
         tmpScenePoints *= scale
-        print("** processing translation: \(meanAvg) scale : \(scale)")
-        
+        print("** preprocessing meanAvg: \(meanAvg) scale : \(scale)")
+        ////////////////////////////////////////////////////////// preprocessing
+
         var pose = matrix_identity_double4x4
         var tempResidual: Double = 0
         var residual: Double = 0
@@ -115,8 +125,6 @@ public class ICP {
                 pc: PointCloud3f(points: tmpModelPoints, normals: model.normals),
                 pose: pose
             )
-//            var sampledModel = pose.toFloat4x4()
-//                * PointCloud3f(points: tmpModelPoints, normals: model.normals)
             let sampleStep = Int(round(Double(n) / Double(numSamples)))
             sampledModel = ICP.samplePCUniform(
                 pc: sampledModel,
@@ -141,7 +149,7 @@ public class ICP {
             var src_moved = sampledModel // copy
             var i = 0
             
-            var numElSrc = sampledModel.points.count
+            var numElSrc = src_moved.points.count
             var distances: [Float] = .init(repeating: 0, count: numElSrc)
             var indices: [Int] = .init(repeating: 0, count: numElSrc)
             
@@ -251,11 +259,8 @@ public class ICP {
 //                    print("-- [\(level)-\(i)] src = \(center_src)/\(size_src), dst = \(center_dst)/\(size_dst)")
 
                     let (rpy, t) = ICP.minimizePointToPlaneMetric(src: srcMatch, dst: dstMatch)
-                    let bbox_dst = bbox(dstMatch.points)
-                    let bbox_src = bbox(srcMatch.points)
-                    let bbox_distance = simd_distance(bbox_dst.0, bbox_src.0)
-                    print("-- [\(level)-\(i)] scene=\(bbox_dst), model=\(bbox_dst)")
-                    print("-- [\(level)-\(i)] distance= \(bbox_distance)")
+                    let md = mean_distance(srcMatch.points, dstMatch.points)
+                    print("-- [\(level)-\(i)] md=\(md)")
 //                    print("-- [\(level)-\(i)] pose r=\(rpy), t=\(t)")
                     print("-- [\(level)-\(i)] pose t=\(t)")
                     // 첫 minimizePointToPlaneMetric 이후 두번째부터 값이 커진다!!
@@ -275,19 +280,17 @@ public class ICP {
 //                    print("-- transformed distance : sampledModel=\(mean_distance(sampledModel.points, src_moved.points)), sampledScene=\(mean_distance(sampledScene.points, src_moved.points))")
 
                     let fval = ICP.norm_l2(srcMatch.points, dstMatch.points) / Double(src_moved.points.count)
-
                     // calculate change in error between iterations
                     fval_perc = fval / fval_old // 이전보다 더 멀어졌으면 1 보다 크겠지?
-                    print("-- [\(level)-\(i)] fval_perc=\(fval_perc), TolP=\(TolP), maxit=\(MaxIterationsPyr)")
-                    print("++ [\(level)-\(i)] loop cond: (\(1 - TolP), \(fval_perc), \(1 + TolP))")
-
                     // store error value
                     fval_old = fval
-                    
                     if fval < fval_min {
                         fval_min = fval
                     }
+                    
                     print("-- [\(level)-\(i)] faval_min = \(fval_min), fval=\(fval)")
+                    print("-- [\(level)-\(i)] fval_perc=\(fval_perc), TolP=\(TolP), maxit=\(MaxIterationsPyr)")
+                    print("++ [\(level)-\(i)] loop cond: (\(1 - TolP), \(fval_perc), \(1 + TolP))")
                 } else { // selInd <= 6 ; 가장가까운 점들이 한곳으로 몰리는 경우. 너무 너무 거리가 먼 경우??
                     print("-- [\(level)-\(i)] ** selInd <= 6")
                     break
@@ -301,11 +304,11 @@ public class ICP {
             residual = tempResidual
             tempResidual = fval_min
 //            print("-- [\(level)], residual = \(residual), pose = \(pose), poseX = \(poseX)")
-            print("-- [\(level)], residual = \(residual)")
+            print("-- [\(level)] residual = \(residual)")
         } // for level
         
         // scale, meanAvg 등 preprocessing 했던 정보 복원
-        var (r, t) = (pose.rotation, pose.translation)
+        var (r, t) = (pose.rotation, pose.translation) // poseToRT
         t = t / scale + meanAvg - r * meanAvg
         
         // residual 에는 scale 안나눠주나?

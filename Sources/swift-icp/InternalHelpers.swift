@@ -33,12 +33,26 @@ func -(
     left: [simd_float3],
     right: simd_double3
 ) -> [simd_float3] {
-    var points: [simd_float3] = .init(unsafeUninitializedCapacity: left.count) { _, _ in }
+    var points: [simd_float3] = []
+    points.reserveCapacity(left.count)
     for p in left {
         points.append(p - right)
     }
     return points
 }
+
+func -(
+    left: [simd_float3],
+    right: simd_float3
+) -> [simd_float3] {
+    var points: [simd_float3] = []
+    points.reserveCapacity(left.count)
+    for p in left {
+        points.append(p - right)
+    }
+    return points
+}
+
 
 // func -=(
 //    left: inout [simd_float3],
@@ -61,16 +75,16 @@ func -(
 //    )
 // }
 
-func /(
-    left: simd_double3,
-    right: Int
-) -> simd_double3 {
-    return simd_double3(
-        x: left.x / Double(right),
-        y: left.y / Double(right),
-        z: left.z / Double(right)
-    )
-}
+//func /(
+//    left: simd_double3,
+//    right: Int
+//) -> simd_double3 {
+//    return simd_double3(
+//        x: left.x / Double(right),
+//        y: left.y / Double(right),
+//        z: left.z / Double(right)
+//    )
+//}
 
 func *=(
     left: inout simd_float3,
@@ -102,7 +116,7 @@ extension [simd_float3] {
         }
         var acc = simd_double3(0, 0, 0)
         for x in self {
-            acc += x
+            acc += x.toDobule()
         }
         return acc / Double(self.count)
     }
@@ -116,7 +130,7 @@ extension [simd_float3] {
         }
         var dist: Double = 0
         for x in self {
-            dist += Double(sqrt(x.x*x.x + x.y*x.y + x.z*x.z))
+            dist += simd_length(x.toDobule())
         }
         return dist
     }

@@ -214,7 +214,7 @@ final class ICP_Test: XCTestCase {
         //   iteration 중에 scene-model 중심 거리가 점점 커지기도...
         
         let t = simd_double4x4(
-            t: .init(15, 0, -15),
+            t: .init(150, 0, -150),
             //        r: matrix_identity_double3x3,
             r: simd_double3(0.1, -0.15, 0.2).eulerToRotation(),
             s: .one)
