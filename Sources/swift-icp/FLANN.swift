@@ -10,7 +10,7 @@ class FLANN {
 
     // https://github.com/jbadger3/SwiftAnnoy
     let index: AnnoyIndex<Float> = .init(itemLength: 3)
-    
+
     init(
         points: [simd_float3]
     ) {
@@ -20,7 +20,7 @@ class FLANN {
         }
         try! index.build(numTrees: 1)
     }
-    
+
     func query(
         point: simd_float3,
         neighbors: Int = 1
@@ -45,7 +45,7 @@ class FLANN {
         }
         return result
     }
-    
+
     /// - remark: 결과안에 자신의 index(distance 0)가 포함될 수 있음 주의
     func query(
         index: Int,

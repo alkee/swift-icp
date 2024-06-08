@@ -2,63 +2,9 @@ import Foundation
 import LASwift
 import simd
 
-public struct PointCloud<T> {
-    public init() {
-        self.init(points: [], normals: [])
-    }
-
-    public init(capacity: Int) {
-        self.points = []
-        points.reserveCapacity(capacity)
-        self.normals = []
-        normals.reserveCapacity(capacity)
-    }
-
-    public init(points: [T], normals: [T]) {
-        assert(points.count == normals.count)
-        self.points = points
-        self.normals = normals
-    }
-
-    public var points: [T]
-    public var normals: [T]
-}
-
-public typealias PointCloud3f = PointCloud<simd_float3>
-
-public extension PointCloud3f {
-    func transform(
-        matrix: simd_double4x4,
-        ignoreInvalidNormal: Bool = false
-    ) -> PointCloud3f {
-        let rot = matrix.rotation
-        var ret: PointCloud3f = .init()
-        for p in points {
-            let p2d = matrix * simd_double4(simd_float4(p, 1))
-            let p2 = simd_float3(simd_double3(p2d.x, p2d.y, p2d.z))
-            ret.points.append(p2)
-        }
-        for p in normals {
-            // 회전만 적용
-            guard p != .zero, ignoreInvalidNormal else {
-                ret.normals.append(p)
-                continue
-            }
-            let p2 = rot * simd_double3(p)
-            assert(p2.hasNan() == false)
-            ret.normals.append(simd_normalize(simd_float3(p2)))
-        }
-        return ret
-    }
-
-    func transform(matrix: simd_float4x4) -> PointCloud3f {
-        return transform(matrix: matrix.toDouble4x4())
-    }
-}
-
 public struct TransformResult {
-    var transformMatrix: simd_double4x4 = matrix_identity_double4x4
-    var residual: Double = 0
+    public var transformMatrix: simd_double4x4 = matrix_identity_double4x4
+    public var residual: Double = 0
 }
 
 public class ICP {
@@ -67,29 +13,43 @@ public class ICP {
         case gelfand // not used.
     }
     
-    var tolerance: Double = 0.005
-    var rejectionScale: Double = 2.5
-    var maxIterations: Int = 250
-    var numLevels: Int = 6
-    var sampleType: Sampling = .uniform
-    var numNeighborsCorr: Int = 1
+    public init(
+        tolerance: Double = 0.005,
+        rejectionScale: Double = 2.5,
+        maxIterations: Int = 250,
+        numLevels: Int = 6,
+        sampleType: Sampling = .uniform,
+        numNeighborsCorr: Int = 1
+    ) {
+        self.tolerance = tolerance
+        self.rejectionScale = rejectionScale
+        self.maxIterations = maxIterations
+        self.numLevels = numLevels
+        self.sampleType = sampleType
+        self.numNeighborsCorr = numNeighborsCorr
+    }
     
-    func registerModelToScene(
+    let tolerance: Double
+    let rejectionScale: Double
+    let maxIterations: Int
+    let numLevels: Int
+    let sampleType: Sampling
+    let numNeighborsCorr: Int
+    
+    public func registerModelToScene(
         model: PointCloud3f, // floating - source
         scene: PointCloud3f // reference - target
     ) -> TransformResult {
         assert(model.normals.count > 0)
-        // TODO: normal 에 0,0,0 포함되어있는 경우 NaN return 가능성 검증
-        
-        // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/ppf_helpers.cpp#L71
-        // 원본에서 mat rows 가 개수, cols 가 point(0,1,2), normal(3,4,5)
+        // TODO: normals in point cloud validation
+        // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/icp.cpp#L246
+        // Mat(0,1,2:point, 3,4,5:normal)
         let n = model.points.count
         let useRobustReject = rejectionScale > 0
         
         // preprocessing
         let meanSrc = model.points.mean()
         let meanDst = scene.points.mean()
-        print("** mean model: \(meanSrc) scene: \(meanDst)")
         
         let meanAvg = (meanSrc + meanDst) * 0.5
         var srcTemp = model.points - meanAvg
@@ -97,35 +57,33 @@ public class ICP {
         
         let distSrc = srcTemp.totalLength()
         let distDst = dstTemp.totalLength()
-        let scale = Double(n) / ((distSrc + distDst) * 0.5) // why ???
+        let scale = Double(n) / ((distSrc + distDst) * 0.5)
         srcTemp *= scale
         dstTemp *= scale
-        print("** preprocessing meanAvg: \(meanAvg) scale : \(scale)")
-        ////////////////////////////////////////////////////////// preprocessing
-
+        
+        // return values
         var pose = matrix_identity_double4x4
         var tempResidual: Double = 0
         var residual: Double = 0
         
         // walk the pyramid
         for level in (0 ..< numLevels).reversed() { // step -1
-            let numSamples = divUp(n, 1 << level)
+            let numSamples = Self.divUp(n, 1 << level)
             let TolP = tolerance * Double((level + 1) * (level + 1))
             let MaxIterationsPyr = Int(round(Double(maxIterations / (level + 1))))
-            print("## [\(level)] begins sample=\(numSamples), TolP=\(TolP), maxitr=\(MaxIterationsPyr)")
-
+            
             // Obtain the sampled point clouds for this level : Also rotates the normals
-            //  왜 sampling 을 먼저 하고 transform 하지 않지?
-            var sampledSrc = ICP.transformPCPose( // srcPCT
-                pc: PointCloud3f(points: srcTemp, normals: model.normals),
-                pose: pose
-            )
+            // TODO: sampling before transform(less calculation)
+            var sampledSrc = PointCloud3f( // srcPCT
+                points: srcTemp,
+                normals: model.normals
+            ).transform(matrix: pose)
             let sampleStep = Int(round(Double(n) / Double(numSamples)))
             sampledSrc = ICP.samplePCUniform(
                 pc: sampledSrc,
                 sampleStep: sampleStep
             )
-
+            
             /*
              Tolga Birdal thinks that downsampling the scene points might decrease the accuracy.
              Hamdi Sahloul, however, notied that accuracy increased (pose residual decreased slightly).
@@ -135,7 +93,6 @@ public class ICP {
                 sampleStep: sampleStep
             )
             
-            // void* flann = indexPCFlann(dstPCS); // distance 기반의 flann
             let flann = FLANN(points: sampledDst.points)
             var fval_old: Double = 9999999999
             var fval_perc: Double = 0
@@ -160,7 +117,6 @@ public class ICP {
                 && i < MaxIterationsPyr
             {
                 let results = ICP.query(from: flann, points: src_moved.points)
-//                print("-- [\(level)-\(i)] scene=\(bbox(sampledScene.points)), model=\(bbox(src_moved.points))")
                 for (idx, r) in results.enumerated() {
                     newI[idx] = idx
                     newJ[idx] = r.index
@@ -192,14 +148,7 @@ public class ICP {
                 // is assigned to the same model point m_j, then select p_i that corresponds
                 // to the minimum distance
                 
-                // 중복제거하고 할당되지않은 가장 가까운 점 찾기..? 더 간단한 방법은 없나?
-                //   hash key : data value,  hash value : data index
-                //  최종 결과 indicesModel, indicesScene
-                // 이상한 hashtabe .. getHashtable 할떄 key, data 를 +1 해서 hashtableInsertHashed
-                //   그때문인지 매번 값 사용할 때, 검색(key)할 때 매번 -1 ..
-                
-                // 중복되는거면.. [value: [index]] 정도로 바꿔 사용하면..?
-                
+                // find unpaired(no duplication) nearest point
                 var dict: [Int: [Int]] = [:]
                 for i in 0 ..< numElSrc {
                     let v = newJ[i]
@@ -224,11 +173,7 @@ public class ICP {
                     selInd += 1
                 }
                 
-                if selInd > 6 { // = dict.count.. 중복 선택되지않은 6개 이상의 점?? 왜 6 ?
-                    // least squares solution 사용하는데 제약조건.. 요소가 0이 포함되면 계산할 수 없음??
-                    //  INFO parameter 참고 : https://www.netlib.org/clapack/CLAPACK-3.1.1/SRC/dgels.c
-                    
-                    // TODO: PointCloud3f 대신 Matrix 를 직접 사용?
+                if selInd > 6 { // least squares solution requirements. see INFO parameter : https://www.netlib.org/clapack/CLAPACK-3.1.1/SRC/dgels.c
                     var srcMatch = PointCloud3f(capacity: selInd) // Matrix(selInd, 6)
                     var dstMatch = PointCloud3f(capacity: selInd)
                     for i in 0 ..< selInd {
@@ -239,96 +184,59 @@ public class ICP {
                         let dstPt = sampledDst.points[indScene]
                         srcMatch.points.append(srcPt)
                         dstMatch.points.append(dstPt)
-
+                        
                         let srcN = sampledSrc.normals[indModel]
                         let dstN = sampledDst.normals[indScene]
                         srcMatch.normals.append(srcN) // 사용하지는 않음
                         dstMatch.normals.append(dstN)
                     }
-
-                    let (rpy, t) = ICP.minimizePointToPlaneMetric(src: srcMatch, dst: dstMatch)
-                    let md = mean_distance(srcMatch.points, dstMatch.points)
-                    print("-- [\(level)-\(i)] md=\(md)")
-//                    print("-- [\(level)-\(i)] pose r=\(rpy), t=\(t)")
-                    print("-- [\(level)-\(i)] pose t=\(t)")
-                    // 첫 minimizePointToPlaneMetric 이후 두번째부터 값이 커진다!!
-                    //   src_moved 반영 이후에 srcMatch, dsstMatch 설정확인이 필요..???
                     
-                    if rpy.hasNan() || t.hasNan() {
-                        // (cvIsNaN(cv::trace(rpy)) || cvIsNaN(cv::norm(t)))
-                        // source nromal 에 0,0,0 이 포함되어있을 수 있음.. 요소 하나라도 Nan 이 있으면 결과는 NaN
-                        print("------ has NAN value in transform ------")
-                        print("rpy=\(rpy), t=\(t)")
+                    let (rpy, t) = ICP.minimizePointToPlaneMetric(src: srcMatch, dst: dstMatch)
+                    
+                    if rpy.hasNan() || t.hasNan() { // (cvIsNaN(cv::trace(rpy)) || cvIsNaN(cv::norm(t)))
+                        // invalid normal contains.
                         break
                     }
-
-                    poseX = ICP.getTransformMatrix(euler: rpy, t: t)
-                    src_moved = ICP.transformPCPose(pc: sampledSrc, pose: poseX)
                     
-//                    print("-- transformed distance : sampledModel=\(mean_distance(sampledModel.points, src_moved.points)), sampledScene=\(mean_distance(sampledScene.points, src_moved.points))")
-
-                    let fval = ICP.norm_l2(srcMatch.points, dstMatch.points) / Double(src_moved.points.count)
+                    poseX = simd_double4x4( // getTransformMatrix
+                        t: t,
+                        r: rpy.eulerToRotation(),
+                        s: .one
+                    )
+                    src_moved = sampledSrc.transform(matrix: poseX)
+                    
+                    let fval = srcMatch.points.mean_distance(dstMatch.points)
                     // calculate change in error between iterations
-                    fval_perc = fval / fval_old // 이전보다 더 멀어졌으면 1 보다 크겠지?
+                    fval_perc = fval / fval_old
                     // store error value
                     fval_old = fval
                     if fval < fval_min {
                         fval_min = fval
                     }
                     
-                    print("-- [\(level)-\(i)] faval_min = \(fval_min), fval=\(fval)")
-                    print("-- [\(level)-\(i)] fval_perc=\(fval_perc), TolP=\(TolP), maxit=\(MaxIterationsPyr)")
-                    print("++ [\(level)-\(i)] loop cond: (\(1 - TolP), \(fval_perc), \(1 + TolP))")
-                } else { // selInd <= 6 ; 가장가까운 점들이 한곳으로 몰리는 경우. 너무 너무 거리가 먼 경우??
-                    print("-- [\(level)-\(i)] ** selInd <= 6")
+                } else { // selInd <= 6 ; is it too far ?
                     break
                 }
                 i += 1
             } // while iteration
             
             pose = poseX * pose
-            // 왜.. residual 이.. pose 의 마지막 정보(fval)가 아니라 min value 이지?
-            //      그리고 왜 fval_min 이 아니라 이전(tempResidual) 값이지? pose 는 이미 반영이 되었는데..
             residual = tempResidual
             tempResidual = fval_min
-//            print("-- [\(level)], residual = \(residual), pose = \(pose), poseX = \(poseX)")
-            print("-- [\(level)] residual = \(residual)")
         } // for level(pyramid)
         
-        // residual 에는 scale 안나눠주나?
+        // TODO: recalculate real residual(inverse preprocess)
         residual = tempResidual
         
-        // scale, meanAvg 등 preprocessing 했던 정보 복원
+        // restore preprocessing. (scale, meanAvg)
         let (r, t) = (pose.rotation, pose.translation) // poseToRT
-//        let restored_t = t / scale + meanAvg - r * meanAvg // 원본대로 하면 반대 위치로 간다???
+        // TODO: check difference to original source
+        //  https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/icp.cpp#L461
         let restored_t = t / scale - meanAvg + r * meanAvg
         return TransformResult(
             transformMatrix: simd_double4x4(t: restored_t, r: r, s: .one),
             residual: residual
         )
-    }
-    
-    /// 각 paried point 의 거리 합
-    static func norm_l2(
-        _ src1: [simd_float3],
-        _ src2: [simd_float3]
-    ) -> Double {
-        assert(src1.count == src2.count)
-        var n = 0.0
-        for i in 0 ..< src1.count {
-            n += simd_distance(src1[i].toDobule(), src2[i].toDobule())
-        }
-        return n
-    }
-    
-    static func getTransformMatrix(
-        euler: simd_double3,
-        t: simd_double3,
-        scale: simd_double3 = .one
-    ) -> simd_double4x4 {
-        // https://github.com/opencv/opencv_contrib/blob/ac994ed2b5b6dd37d60ae5cd4267b61ceefa052d/modules/surface_matching/src/icp.cpp#L222
-        // iOS 16 이상에서는 EulerAngles, Rotation3D 등 사용 가능한데.. https://developer.apple.com/documentation/spatial/rotation3d
-        return .init(t: t, r: euler.eulerToRotation(), s: scale)
     }
     
     // Kok Lim Low's linearization
@@ -355,16 +263,15 @@ public class ICP {
             a[row: i] = row
             b[i, 0] = simd_dot(sub, normal)
         }
+
         // cv::solve(A, b, rpy_t, DECOMP_SVD);
         //   https://github.com/opencv/opencv/blob/12e2cc9502bc51bb01ed3fdd2f39ce1533c8236e/modules/core/src/lapack.cpp#L1032
         //   A(rows, 6) * x(6, 1) = B(rows, 1)
-        // https://developer.apple.com/documentation/accelerate/solving_systems_of_linear_equations_with_lapack
-        //   -> macos 에서만 지원하는 듯해 여기에서는 사용하기 어려움. => LASwift 사용
-        
-        assert(a.rows > 6) // full rank 문제(triangular factor zero) 피하기 위해. (lstsqr 함수 내 info == 6 "Error". 참고: https://www.netlib.org/clapack/CLAPACK-3.1.1/SRC/dgels.c
+        // LASwift for esasy to use. instead of https://developer.apple.com/documentation/accelerate/solving_systems_of_linear_equations_with_lapack
+        assert(a.rows > 6) // to avoid full rank problem(triangular factor zero). see the INFO in  https://www.netlib.org/clapack/CLAPACK-3.1.1/SRC/dgels.c
         let (x, _) = lstsqr(a, b) // solve equation(Ax=B)
         let rpy_t = x.T[row: 0] // rows to array
-
+        
         assert(rpy_t.count == 6)
         let r_euler = simd_double3(rpy_t[0 ..< 3])
         let t = simd_double3(rpy_t[3 ..< 6])
@@ -373,7 +280,6 @@ public class ICP {
     
     func getRejectionThreshold(
         r: [Float],
-//        m: Int,
         outlierScale: Float
     ) -> Float {
         // https://github.com/opencv/opencv_contrib/blob/ac994ed2b5b6dd37d60ae5cd4267b61ceefa052d/modules/surface_matching/src/icp.cpp#L174
@@ -384,7 +290,7 @@ public class ICP {
         for i in 0 ..< m {
             t[i] = fabsf(r[i] - medR)
         }
-        let s = 1.48257968 * medianF(arr: &t) // 왜 다시 sort ?
+        let s = 1.48257968 * medianF(arr: &t) // sort again? why?
         let threshold = outlierScale * s + medR
         return threshold
     }
@@ -392,7 +298,6 @@ public class ICP {
     // From numerical receipes: Finds the median of an array
     func medianF(
         arr: inout [Float]
-//        , n: Int
     ) -> Float {
         // https://github.com/opencv/opencv_contrib/blob/ac994ed2b5b6dd37d60ae5cd4267b61ceefa052d/modules/surface_matching/src/icp.cpp#L111
         let n = arr.count
@@ -454,36 +359,11 @@ public class ICP {
         }
     }
     
-//    static func query<Element>(
-//        from: KDTree<Element>,
-//        points: [Element]
-//    ) -> [KDTree<Element>.Result] {
-//        let start = Date()
-//
-//        var results: [KDTree<Element>.Result] = .init(
-//            repeating: .init(),
-//            count: points.count
-//        )
-//
-//        for i in 0 ..< points.count {
-//        // 왜 concurrentPerform 가 더 느리지? (10_000 정도 테스트)
-    ////        DispatchQueue.concurrentPerform(iterations: points.count) { i in
-//            if let result = from.nearestK(point: points[i]).first {
-//                results[i] = result
-//            }
-//        }
-//        results.removeAll(where: { $0.index == -1 })
-//
-//        let end = Date()
-//        print("query(\(points.count) points estimated : \(end.timeIntervalSince(start))")
-//
-//        return results
-//    }
     static func query(
         from: FLANN,
         points: [simd_float3]
     ) -> [FLANN.Result] {
-//        let start = Date()
+        //        let start = Date()
         var results: [FLANN.Result] = .init()
         results.reserveCapacity(points.count)
         
@@ -492,51 +372,10 @@ public class ICP {
             if r.count == 0 { continue }
             results.append(r[0])
         }
-        
-//        let end = Date()
-//        print("query(\(points.count) points estimated : \(end.timeIntervalSince(start))")
-        
         return results
     }
     
-    static func transformPCPose(
-        pc: PointCloud3f,
-        pose: simd_double4x4
-    ) -> PointCloud3f {
-//        return pc.transform(matrix: pose)
-        
-        // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/ppf_helpers.cpp#L568
-        // point / normal 에 서로다른 transform 적용을 위함
-        var pct = pc.points
-        var pctN = pc.normals
-        let r = pose.rotation
-        for i in 0 ..< pc.points.count {
-            let data = pc.points[i]
-            let n1 = pc.normals[i]
-            
-            let p = pose * data.toDobule().toDouble4(1)
-            let p2 = p.toDouble3()
-            
-            // p2[3] should normally be 1
-            // ????
-            if fabs(p.w) > .ulpOfOne { // EPS
-                pct[i] = simd_float3(p2 * (1.0 / p.w))
-            }
-            
-            // if the point cloud has normals,
-            // then rotate them as well
-            let n2 = r * n1.toDobule()
-//            let norm = simd_length(n2) // L2 norm
-//            if norm > .ulpOfOne {
-//                pctN[i] =  simd_float3(n2 * (1.0 / norm))
-//            }
-            pctN[i] = simd_float3(simd_normalize(n2))
-        }
-        
-        return PointCloud3f(points: pct, normals: pctN)
-    }
-    
-    /// - remark: includeInvalidNormal 인 경우 (0,0,0) 등에 의해 icp 결과가 NaN 이 될 수 있음
+    /// - remark: ICP would fail(Nan) by invalid normals like (0,0,0)
     static func samplePCUniform(
         pc: PointCloud3f,
         sampleStep: Int,
@@ -548,16 +387,19 @@ public class ICP {
         
         let reserveRows = (pc.points.count / sampleStep) + 1
         var sampledPC = PointCloud3f(capacity: reserveRows)
-
+        
         for i in stride(from: 0, to: pc.points.count, by: sampleStep) {
-            if simd_length(pc.normals[i]) > 0 {
+            if includeInvalidNormal || simd_length(pc.normals[i]) > 0 {
                 sampledPC.points.append(pc.points[i])
                 sampledPC.normals.append(pc.normals[i])
             } else {
                 // TODO: log warning
-//                print("invalid normal point skipped. index:\(i), point:\(pc.points[i])")
             }
         }
         return sampledPC
+    }
+    
+    static func divUp(_ a: Int, _ b: Int) -> Int {
+        return (a + b - 1) / b
     }
 }

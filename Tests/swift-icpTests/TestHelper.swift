@@ -48,3 +48,21 @@ func ccText(by: simd_double4x4, cmajor: Bool = true) -> String {
     result += "\(ccText(by: by.columns.3))"
     return result
 }
+
+
+extension [simd_float3] {
+    func minmax() -> (simd_float3, simd_float3) {
+        assert(self.count > 0)
+        var min: simd_float3 = .one * .greatestFiniteMagnitude
+        var max: simd_float3 = -min
+        for p in self {
+            if min.x > p.x { min.x = p.x }
+            if min.y > p.y { min.y = p.y }
+            if min.z > p.z { min.z = p.z }
+            if max.x < p.x { max.x = p.x }
+            if max.y < p.y { max.y = p.y }
+            if max.z < p.z { max.z = p.z }
+        }
+        return (min, max)
+    }
+}
