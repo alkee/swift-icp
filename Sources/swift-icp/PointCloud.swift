@@ -13,7 +13,7 @@ public struct PointCloud<T> {
     }
 
     public init(points: [T], normals: [T]) {
-        assert(points.count == normals.count)
+        assert(normals.count == 0 || points.count == normals.count)
         self.points = points
         self.normals = normals
     }

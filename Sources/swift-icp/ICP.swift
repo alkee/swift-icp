@@ -37,23 +37,23 @@ public class ICP {
     let numNeighborsCorr: Int
     
     public func registerModelToScene(
-        model: PointCloud3f, // floating - source
-        scene: PointCloud3f // reference - target
+        src: PointCloud3f, // floating
+        dst: PointCloud3f // reference
     ) -> TransformResult {
-        assert(model.normals.count > 0)
+        assert(dst.normals.count > 0, "reference must have normal")
         // TODO: normals in point cloud validation
         // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/icp.cpp#L246
         // Mat(0,1,2:point, 3,4,5:normal)
-        let n = model.points.count
+        let n = src.points.count
         let useRobustReject = rejectionScale > 0
         
         // preprocessing
-        let meanSrc = model.points.mean()
-        let meanDst = scene.points.mean()
+        let meanSrc = src.points.mean()
+        let meanDst = dst.points.mean()
         
         let meanAvg = (meanSrc + meanDst) * 0.5
-        var srcTemp = model.points - meanAvg
-        var dstTemp = scene.points - meanAvg
+        var srcTemp = src.points - meanAvg
+        var dstTemp = dst.points - meanAvg
         
         let distSrc = srcTemp.totalLength()
         let distDst = dstTemp.totalLength()
@@ -76,7 +76,7 @@ public class ICP {
             // TODO: sampling before transform(less calculation)
             var sampledSrc = PointCloud3f( // srcPCT
                 points: srcTemp,
-                normals: model.normals
+                normals: src.normals
             ).transform(matrix: pose)
             let sampleStep = Int(round(Double(n) / Double(numSamples)))
             sampledSrc = ICP.samplePCUniform(
@@ -89,7 +89,7 @@ public class ICP {
              Hamdi Sahloul, however, notied that accuracy increased (pose residual decreased slightly).
              */
             let sampledDst = ICP.samplePCUniform( // dstPCS
-                pc: PointCloud3f(points: dstTemp, normals: scene.normals),
+                pc: PointCloud3f(points: dstTemp, normals: dst.normals),
                 sampleStep: sampleStep
             )
             
@@ -180,15 +180,13 @@ public class ICP {
                         let indModel = indicesModel[i]
                         let indScene = indicesScene[i]
                         
-                        let srcPt = sampledSrc.points[indModel]
-                        let dstPt = sampledDst.points[indScene]
-                        srcMatch.points.append(srcPt)
-                        dstMatch.points.append(dstPt)
                         
-                        let srcN = sampledSrc.normals[indModel]
-                        let dstN = sampledDst.normals[indScene]
-                        srcMatch.normals.append(srcN) // 사용하지는 않음
-                        dstMatch.normals.append(dstN)
+                        srcMatch.points.append(sampledSrc.points[indModel])
+                        dstMatch.points.append(sampledDst.points[indScene])
+                        if srcMatch.normals.count > 0 { // model normal - 사용하지 않아 없을 수 있음
+                            srcMatch.normals.append(sampledSrc.normals[indModel])
+                        }
+                        dstMatch.normals.append(sampledDst.normals[indScene])
                     }
                     
                     let (rpy, t) = ICP.minimizePointToPlaneMetric(src: srcMatch, dst: dstMatch)
@@ -381,14 +379,19 @@ public class ICP {
         sampleStep: Int,
         includeInvalidNormal: Bool = false // TODO: recalculation support.
     ) -> PointCloud3f {
-        // mhttps://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/ppf_helpers.cpp#L251
-        assert(pc.points.count == pc.normals.count)
+        // https://github.com/opencv/opencv_contrib/blob/b042744ae4515c0a7dfa53bda2d3a22f2ec87a68/modules/surface_matching/src/ppf_helpers.cpp#L251
+        assert(pc.normals.count == 0 || pc.points.count == pc.normals.count)
         assert(sampleStep > 0)
         
+        let hasNormal = pc.normals.count > 0
         let reserveRows = (pc.points.count / sampleStep) + 1
         var sampledPC = PointCloud3f(capacity: reserveRows)
         
         for i in stride(from: 0, to: pc.points.count, by: sampleStep) {
+            if hasNormal == false {
+                sampledPC.points.append(pc.points[i])
+                continue
+            }
             if includeInvalidNormal || simd_length(pc.normals[i]) > 0 {
                 sampledPC.points.append(pc.points[i])
                 sampledPC.normals.append(pc.normals[i])
