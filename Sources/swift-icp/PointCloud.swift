@@ -150,13 +150,15 @@ public extension PointCloud3f {
         
         let offset = from.dataOffset
         let vectorCount = from.vectorCount
-        return from.data.withUnsafeBytes { buffer in
+        return from.data.withUnsafeBytes { (buffer: UnsafeRawBufferPointer) in
             var result: [simd_float3] = []
             for i in 0..<vectorCount {
                 let start = i * stride + offset
-                // memory layout 크기 때문에(simd_float3 == 16, SCNVector3 == 12)
-                let p = buffer.loadUnaligned(fromByteOffset: start, as: SCNVector3.self)
-                result.append(simd_float3(p.x, p.y, p.z))
+                // memory layout 크기 때문에(simd_float3 == 16, SCNVector3 == 12) 개별 Float 로 load
+                let px = buffer.loadUnaligned(fromByteOffset: start, as: Float.self)
+                let py = buffer.loadUnaligned(fromByteOffset: start + 4, as: Float.self)
+                let pz = buffer.loadUnaligned(fromByteOffset: start + 8, as: Float.self)
+                result.append(simd_float3(px, py, pz))
             }
             return result
         }

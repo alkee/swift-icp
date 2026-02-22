@@ -15,7 +15,7 @@ final class ICP_Usage_Test: XCTestCase {
         let t_pc = pc.transform(matrix: expected) // reference
 
         let icp = ICP()
-        let result = icp.registerModelToScene(model: pc, scene: t_pc)
+        let result = icp.registerModelToScene(src: pc, dst: t_pc)
         let result_translation = result.transformMatrix.translation
         let result_rotation = result.transformMatrix.rotation
 

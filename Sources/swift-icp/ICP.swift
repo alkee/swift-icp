@@ -102,7 +102,7 @@ public class ICP {
             var i = 0
             
             var numElSrc = src_moved.points.count
-            var distances: [Float] = .init(repeating: 0, count: numElSrc)
+            var squaredDistances: [Float] = .init(repeating: 0, count: numElSrc)
             var indices: [Int] = .init(repeating: 0, count: numElSrc)
             
             // use robust weighting for outlier treatment
@@ -121,16 +121,16 @@ public class ICP {
                     newI[idx] = idx
                     newJ[idx] = r.index
                     indices[idx] = r.index
-                    distances[idx] = r.distance
+                    squaredDistances[idx] = r.squaredDistance
                 }
                 
                 if useRobustReject {
                     var numInliers = 0
                     let threshold = getRejectionThreshold(
-                        r: distances,
+                        r: squaredDistances,
                         outlierScale: Float(rejectionScale)
                     )
-                    let acceptInd = distances.map { val in
+                    let acceptInd = squaredDistances.map { val in
                         val < threshold
                     }
                     for l in 0 ..< acceptInd.count {
@@ -162,7 +162,7 @@ public class ICP {
                     var minIdxD = 0
                     var minDist = Float.greatestFiniteMagnitude
                     for idx in inds { // 가장 가까운 거리의 index(minIdxD) 찾기
-                        let dist = distances[idx]
+                        let dist = squaredDistances[idx]
                         if dist < minDist {
                             minDist = dist
                             minIdxD = idx

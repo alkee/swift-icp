@@ -5,7 +5,8 @@ import SwiftAnnoy
 class FLANN {
     struct Result {
         let index: Int
-        let distance: Float
+        // OpenCV FLANN(cvflann::L2)이 squared Euclidean distance 를 반환하는 동작과 일치시키기 위해 제곱값 사용
+        let squaredDistance: Float
     }
 
     // https://github.com/jbadger3/SwiftAnnoy
@@ -36,10 +37,11 @@ class FLANN {
         var result: [Result] = []
         result.reserveCapacity(cnt)
         for i in 0 ..< cnt {
+            let d = Float(fr.distances[i])
             result.append(
                 Result(
                     index: fr.indices[i],
-                    distance: fr.distances[i]
+                    squaredDistance: d * d
                 )
             )
         }
@@ -61,10 +63,11 @@ class FLANN {
         var result: [Result] = []
         result.reserveCapacity(cnt)
         for i in 0 ..< cnt {
+            let d = Float(fr.distances[i])
             result.append(
                 Result(
                     index: fr.indices[i],
-                    distance: fr.distances[i]
+                    squaredDistance: d * d
                 )
             )
         }
